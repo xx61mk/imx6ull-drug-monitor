@@ -15,10 +15,11 @@
 #define NEW_ADDRESS     "tcp://183.230.40.96:1883"
 #define DEV_NAME    "env"   //"device_name"  //"first_device"
 #define CLIENTID DEV_NAME
-#define PRODUCT_ID    "3hQ8590pBC"  //"63fg7NqRxY"  //"3XoV8495r6"
-#define PASSWD     "version=2018-10-31&res=products%2F3hQ8590pBC%2Fdevices%2Fenv&et=19372555238995&method=md5&sign=ntUH0UJYzKuPu2BAF8AmDw%3D%3D"
-//"version=2018-10-31&res=products%2F63fg7NqRxY%2Fdevices%2Fdevice_name&et=3937255523&method=md5&sign=oCu6NsiOgu2LWSV8HnjYUA%3D%3D"
-//"version=2018-10-31&res=products%2F3XoV8495r6%2Fdevices%2Ffirst_device&et=1837255523&method=sha1&sign=dtVQufcgwCrn5zmdmWLXFEtJAQY%3D";
+/* v1 把 OneNET 三元组硬编码在这里，曾随仓库公开，已作废并从当前版本移除。
+ * 真机的产品 ID / 设备名 / 鉴权 token 请填自己的，或参考 v2 的 src/mqtt_client.c
+ * 改为从环境变量读取（MQTT_PRODUCT / MQTT_DEVICE / MQTT_TOKEN）。 */
+#define PRODUCT_ID    "YOUR_PRODUCT_ID"
+#define PASSWD        "YOUR_DEVICE_TOKEN"
 #define QOS         0
 #define TIMEOUT     10000L
 

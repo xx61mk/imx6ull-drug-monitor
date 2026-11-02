@@ -1,80 +1,95 @@
 #
-# Makefile  (framebuffer 版：不依赖 SDL，使用 /dev/fb0 + evdev 触摸屏)
+# 药品恒温监控 —— 构建脚本
 #
-# 本机编译（x86_64 Linux，需有 /dev/fb0 帧缓冲，如文本控制台 / 虚拟机）：
-#   make
-#   ./demo            # 全屏显示 UI，刷新邮箱推送的温度/湿度/设备号
+#   make                      本地编译（PC / Ubuntu），产出 ./drug-monitor
+#   make run                  跑一遍演示场景（5 分钟，带四类故障注入）
+#   make check                只做语法与告警检查，不产出可执行文件
+#   make arm                  交叉编译到 i.MX6ULL
+#   make WITH_MQTT=1          接真实 MQTT 上云（需要 Paho MQTT C 库）
+#   make USE_SYSTEM_SQLITE=1  用系统 libsqlite3，不编译内置源码
+#   make clean
 #
-# 交叉编译到 ARM 开发板（带 framebuffer + 触摸屏）：
-#   make CC=arm-linux-gnueabihf-gcc
+# 默认把 SQLite 源码一起编进来：板端往往没有 libsqlite3-dev，
+# 内置一份 amalgamation 后只需要交叉工具链，少一个绊脚石。
 #
-# 需要上云（MQTT/SQLite）时：
-#   make WITH_MQTT=1 CC=arm-linux-gnueabihf-gcc
-#
-CC = arm-linux-gnueabihf-gcc
-LVGL_DIR_NAME ?= lvgl
-LVGL_DIR ?= ${shell pwd}
-CFLAGS ?= -O3 -g0 -I$(LVGL_DIR)/ -std=gnu99 -Wall #-Wshadow -Wundef -Wmissing-prototypes -Wno-discarded-qualifiers -Wall -Wextra -Wno-unused-function -Wno-error=strict-prototypes -Wpointer-arith -fno-strict-aliasing -Wno-error=cpp -Wuninitialized -Wmaybe-uninitialized -Wno-unused-parameter -Wno-missing-field-initializers -Wtype-limits -Wsizeof-pointer-memaccess -Wno-format-nonliteral -Wno-cast-qual -Wunreachable-code -Wno-switch-default -Wreturn-type -Wmultichar -Wformat-security -Wno-ignored-qualifiers -Wno-error=pedantic -Wno-sign-compare -Wno-error=missing-prototypes -Wdouble-promotion -Wclobbered -Wdeprecated -Wempty-body -Wtype-limits -Wshift-negative-value -Wstack-usage=2048 -Wno-unused-value -Wno-unused-parameter -Wno-missing-field-initializers -Wuninitialized -Wmaybe-uninitialized -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wtype-limits -Wsizeof-pointer-memaccess -Wno-format-nonliteral -Wpointer-arith -Wno-cast-qual -Wmissing-prototypes -Wunreachable-code -Wno-switch-default -Wreturn-type -Wmultichar -Wno-discarded-qualifiers -Wformat-security -Wno-ignored-qualifiers -Wno-sign-compare
-LDFLAGS ?= -lm -lpthread -lrt -ldl
-BIN = demo
 
-# Collect the files to compile
-MAINSRC = ./main.c
+CC       ?= gcc
+TARGET   ?= drug-monitor
+BUILD    ?= build
 
-include $(LVGL_DIR)/lvgl/lvgl.mk
-include $(LVGL_DIR)/lv_drivers/lv_drivers.mk
+CFLAGS   ?= -O2 -g -std=gnu99 -Wall -Wextra
+CPPFLAGS += -Iinclude
+LDLIBS    = -lpthread -lrt -lm
 
-CSRCS += $(LVGL_DIR)/mouse_cursor_icon.c
+SRC_CORE  = src/link.c \
+            src/linkqueue.c \
+            src/mailbox.c \
+            src/sensor.c \
+            src/control.c \
+            src/storage.c \
+            src/ringbuf.c \
+            src/uplink.c \
+            src/app.c
 
-# UI (SquareLine Studio 生成)
-CSRCS += $(wildcard $(LVGL_DIR)/UI/*.c)
-CSRCS += $(wildcard $(LVGL_DIR)/UI/components/*.c)
-CSRCS += $(wildcard $(LVGL_DIR)/UI/screens/*.c)
-CSRCS += $(wildcard $(LVGL_DIR)/UI/fonts/*.c)
-CSRCS += $(wildcard $(LVGL_DIR)/UI/images/*.c)
+SRC_MAIN  = src/main.c
+HEADERS   = $(wildcard include/*.h)
 
-# 邮箱(mailbox)核心模块：链表 + 队列 + 邮箱
-CSRCS += $(LVGL_DIR)/project/src/link.c
-CSRCS += $(LVGL_DIR)/project/src/linkqueue.c
-CSRCS += $(LVGL_DIR)/project/src/mailbox.c
-
-# 邮箱头文件路径
-CFLAGS += -I$(LVGL_DIR)/project/include
-
-# 可选：MQTT 上云模块（默认不编）
-#   make WITH_MQTT=1            # 本机编译
-#   make WITH_MQTT=1 CC=arm-linux-gnueabihf-gcc   # 交叉编译
-# 说明：直接把 Paho MQTT C 源码编进工程（未定义 OPENSSL 宏，无需 openssl 库），
-#       数据由 save_data_th 线程经 MQTT 上传 OneNET 平台（见 project/include/mqtt.h）。
 ifeq ($(WITH_MQTT),1)
-CFLAGS += -DWITH_MQTT
-CFLAGS += -I$(LVGL_DIR)/project/include/src
-CSRCS += $(filter-out %MQTTVersion.c,$(wildcard $(LVGL_DIR)/project/include/src/*.c))
-CSRCS += $(LVGL_DIR)/project/src/mqtt.c
-CSRCS += $(LVGL_DIR)/project/src/mysqlite.c
-LDFLAGS += -L$(LVGL_DIR)/project/lib/sqlite3/lib -lsqlite3
+  CPPFLAGS  += -DWITH_MQTT
+  SRC_CORE  += src/mqtt_client.c
+  LDLIBS    += -lpaho-mqtt3c
 endif
 
-OBJEXT ?= .o
+CORE_OBJS = $(patsubst %.c,$(BUILD)/%.o,$(SRC_CORE))
+MAIN_OBJ  = $(patsubst %.c,$(BUILD)/%.o,$(SRC_MAIN))
 
-AOBJS = $(ASRCS:.S=$(OBJEXT))
-COBJS = $(CSRCS:.c=$(OBJEXT))
+ifeq ($(USE_SYSTEM_SQLITE),1)
+  SQLITE_OBJ =
+  SQLITE_CPPFLAGS =
+  LDLIBS    += -lsqlite3
+else
+  SQLITE_OBJ = $(BUILD)/third_party/sqlite3/sqlite3.o
+  SQLITE_CPPFLAGS = -Ithird_party/sqlite3 -DSQLITE_THREADSAFE=1 -DSQLITE_OMIT_LOAD_EXTENSION
+endif
 
-MAINOBJ = $(MAINSRC:.c=$(OBJEXT))
+OBJS = $(CORE_OBJS) $(MAIN_OBJ) $(SQLITE_OBJ)
 
-SRCS = $(ASRCS) $(CSRCS) $(MAINSRC)
-OBJS = $(AOBJS) $(COBJS)
+.PHONY: all run check arm clean help
 
-## MAINOBJ -> OBJFILES
+all: $(TARGET)
 
-all: default
+$(TARGET): $(OBJS)
+	$(CC) -o $@ $(OBJS) $(LDFLAGS) $(LDLIBS)
+	@echo "built: $@"
 
-%.o: %.c
-	@$(CC)  $(CFLAGS) -c $< -o $@
-	@echo "CC $<"
+$(BUILD)/src/%.o: src/%.c $(HEADERS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(SQLITE_CPPFLAGS) -c $< -o $@
 
-default: $(AOBJS) $(COBJS) $(MAINOBJ)
-	$(CC) -o $(BIN) $(MAINOBJ) $(AOBJS) $(COBJS) $(LDFLAGS)
+# SQLite 源码不跟业务代码一起开 -Wall，否则满屏都是第三方告警
+$(BUILD)/third_party/sqlite3/%.o: third_party/sqlite3/%.c
+	@mkdir -p $(dir $@)
+	$(CC) -O2 $(SQLITE_CPPFLAGS) -c $< -o $@
+
+run: $(TARGET)
+	./$(TARGET) --sim --scenario demo --seconds 300 --dump 10
+
+check:
+	@for f in $(SRC_CORE) $(SRC_MAIN); do \
+		echo "  syntax $$f"; \
+		$(CC) $(CFLAGS) $(CPPFLAGS) $(SQLITE_CPPFLAGS) -fsyntax-only $$f || exit 1; \
+	done
+	@echo "syntax check passed"
+
+# 交叉编译单独用 build-arm 目录，避免和本机 x86 的 .o 混在一起
+arm:
+	$(MAKE) CC=arm-linux-gnueabihf-gcc TARGET=drug-monitor-arm BUILD=build-arm
 
 clean:
-	rm -f $(BIN) $(AOBJS) $(COBJS) $(MAINOBJ)
+	rm -rf build build-arm
+	rm -f $(TARGET) drug-monitor-arm
+	rm -f env.db env.db-wal env.db-shm
+	rm -f uplink_queue.bin uplink_queue.bin.tmp
+
+help:
+	@sed -n '2,20p' Makefile

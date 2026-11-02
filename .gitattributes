@@ -1,0 +1,19 @@
+# 统一用 LF 入库：目标是 Linux 板端，脚本带 CRLF 会直接报 "\r: not found"
+* text=auto eol=lf
+
+*.c      text eol=lf
+*.h      text eol=lf
+*.py     text eol=lf
+*.md     text eol=lf
+*.sh     text eol=lf
+Makefile text eol=lf
+
+# 第三方 amalgamation 原样保留，不做行尾转换（8MB，转换没意义还慢）
+third_party/sqlite3/sqlite3.c -text
+third_party/sqlite3/sqlite3.h -text
+
+# 二进制
+*.bin binary
+*.db  binary
+*.png binary
+*.jpg binary

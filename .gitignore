@@ -1,18 +1,28 @@
+# 构建产物
+build/
+build-arm/
+drug-monitor
+drug-monitor-arm
+demo
 *.o
 *.so
 *.so.*
 *.a
 *.out
-demo
-app
-build/
+
+# 运行产物
+*.db
+*.db-wal
+*.db-shm
+env.db.corrupt.*
+uplink_queue.bin
+uplink_queue.bin.tmp
+
+# 编辑器 / 系统
 .vscode/
 *.swp
 Thumbs.db
 .DS_Store
 
 # 本地凭据（OneNET 设备三元组，不要提交）
-project/include/onenet_secret.h
-*.db
-*.db-wal
-*.db-shm
+legacy/project/include/onenet_secret.h
