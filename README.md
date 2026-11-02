@@ -11,6 +11,20 @@
 - **云端监管**：MQTT 接入 OneNET，定时上报状态、即时推送报警
 - **本地交互**：LVGL + Framebuffer + 触摸屏，实时曲线与参数设置
 
+### 实现进度
+
+框架层已跑通，业务层按下面的状态推进（细节见 [`docs/代码流程.md`](docs/代码流程.md) 第八节）：
+
+| 模块 | 状态 |
+|---|---|
+| 多线程 + 邮箱解耦、链式队列 | ✅ 完整 |
+| LVGL 显示 + 触摸 + 主线程刷新 | ✅ 完整 |
+| MQTT 连接 / 发布 / 回调（OneNET 物模型） | ✅ 完整 |
+| 传感器真实采集 | ⚠️ 当前用 `rand()` 模拟，接入点已预留 |
+| SQLite3 落盘 | ⚠️ `mysqlite.c` 为空实现，构建已链接 sqlite3 |
+| 自动控温 / 声光报警 | ❌ 待实现（新增 ctrl 线程注册进邮箱即可） |
+| 断线重连补传 | ❌ 待实现 |
+
 ## 架构
 
 采用「采集 → 邮箱 → 消费」的解耦结构，三个工作线程 + 一个 UI 主循环：
@@ -24,6 +38,8 @@ main           lv_timer_handler() 驱动 UI，UI 对象只在主线程操作
 ```
 
 关键约束：**LVGL 8 非线程安全**，所以工作线程只写共享结构体并用 `g_data_seq` 递增做标记，UI 的刷新统一收敛到主线程，避免跨线程操作控件导致卡死。
+
+📄 **代码执行流程详解**（启动链 → 初始化 → 邮箱机制 → 数据流 → 云端 → 各模块接入点）：[`docs/代码流程.md`](docs/代码流程.md)
 
 ## 目录
 
@@ -39,12 +55,12 @@ main           lv_timer_handler() 驱动 UI，UI 对象只在主线程操作
 └── project/
     ├── include/           link / linkqueue / mailbox / mqtt / mysqlite 头文件
     └── src/
-        ├── main.c         纯逻辑版入口（不带 UI，便于单独验证业务）
-        ├── mailbox.c      线程间邮箱，mutex + 条件变量
-        ├── link.c         链表
+        ├── main.c         纯逻辑版入口（不带 UI，四线程，便于单独验证业务）
+        ├── mailbox.c      线程间邮箱，mutex + 信号量（sem_wait/sem_post）
+        ├── link.c         链表（线程注册表）
         ├── linkqueue.c    链式队列
         ├── mqtt.c         MQTT 封装（paho）
-        └── mysqlite.c     SQLite3 封装
+        └── mysqlite.c     SQLite3 封装（当前为空实现，见 docs/代码流程.md 第八节）
 ```
 
 ## 依赖
@@ -90,3 +106,20 @@ cd project/src && make
 - 姿态：ADXL345（SPI），用于碰撞倾倒检测
 - 其他：门磁开关、液体泄漏检测、继电器控制的制冷/加热模块、蜂鸣器 + LED
 - 显示：RGB LCD + 电阻触摸屏（Framebuffer + tslib/evdev）
+
+## ⚠️ 安全提示
+
+`project/include/mqtt.h` 里的 `PRODUCT_ID`、`PASSWD` 是 OneNET 平台的设备三元组与鉴权 token，目前已随仓库公开。**请到 OneNET 控制台重置该设备的密钥**，旧 token 随之失效。
+
+后续建议改成本地不提交的配置头：
+
+```c
+/* project/include/onenet_secret.h  —— 加入 .gitignore */
+#define ONENET_PRODUCT_ID "xxxxxxx"
+#define ONENET_PASSWD     "version=2018-10-31&res=..."
+```
+
+```c
+/* mqtt.h 里改为引用它，仓库只提交 onenet_secret.h.example */
+#include "onenet_secret.h"
+```

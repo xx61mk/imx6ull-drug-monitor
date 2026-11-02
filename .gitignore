@@ -10,3 +10,9 @@ build/
 *.swp
 Thumbs.db
 .DS_Store
+
+# 本地凭据（OneNET 设备三元组，不要提交）
+project/include/onenet_secret.h
+*.db
+*.db-wal
+*.db-shm
